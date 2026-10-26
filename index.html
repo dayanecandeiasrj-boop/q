@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Penalty Shootout - Poki Edition</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #0b0f19;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Montserrat', 'Segoe UI', Tahoma, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.8);
+            border-radius: 20px;
+            overflow: hidden;
+            border: 4px solid #1e293b;
+        }
+        canvas { display: block; background: #15803d; }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div id="gameContainer">
+    <canvas id="gameCanvas" width="400" height="640"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let score = 0;
+let lives = 3;
+let gameState = 'MENU'; // MENU, AIMING, FLYING, GOAL, MISS, GAMEOVER
+let shakeTimer = 0;
+
+// Trave
+const goal = { x: 45, y: 70, width: 310, height: 14 };
+
+// Goleiro Inteligente
+const goalkeeper = {
+    x: 175,
+    y: 75,
+    width: 60,
+    height: 30,
+    speed: 5.0,
+    direction: 1,
+    targetDefenseX: 175
+};
+
+// Bola
+const ball = {
+    x: 200,
+    y: 520,
+    radius: 16,
+    startX: 200,
+    startY: 520,
+    vx: 0,
+    vy: 0,
+    scale: 1
+};
+
+// Botões Mobile na tela
+const mobileButtons = [
+    { label: '⬅️ ESQ', x: 20, y: 575, width: 110, height: 45, targetX: 65 },
+    { label: '⚽ MEIO', x: 145, y: 575, width: 110, height: 45, targetX: 200 },
+    { label: 'DIR ➡️', x: 270, y: 575, width: 110, height: 45, targetX: 335 }
+];
+
+let isDragging = false;
+let dragStart = { x: 0, y: 0 };
+let dragCurrent = { x: 0, y: 0 };
+
+// Eventos
+canvas.addEventListener('mousedown', startDrag);
+canvas.addEventListener('mousemove', drag);
+canvas.addEventListener('mouseup', endDrag);
+
+canvas.addEventListener('touchstart', handleTouchStart, {passive: false});
+canvas.addEventListener('touchmove', handleTouchMove, {passive: false});
+canvas.addEventListener('touchend', handleTouchEnd);
+
+function getCanvasPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function startDrag(e) {
+    const pos = getCanvasPos(e);
+
+    if (gameState === 'MENU') {
+        gameState = 'AIMING';
+        return;
+    }
+    if (gameState === 'GAMEOVER') {
+        resetGame();
+        gameState = 'AIMING';
+        return;
+    }
+    if (gameState !== 'AIMING') return;
+
+    // Checar botões mobile
+    for (let btn of mobileButtons) {
+        if (pos.x >= btn.x && pos.x <= btn.x + btn.width && pos.y >= btn.y && pos.y <= btn.y + btn.height) {
+            chutarPara(btn.targetX);
+            return;
+        }
+    }
+
+    // Checar clique na bola
+    if (Math.hypot(pos.x - ball.x, pos.y - ball.y) < ball.radius * 2.5) {
+        isDragging = true;
+        dragStart = pos;
+        dragCurrent = pos;
+    }
+}
+
+function drag(e) { if (isDragging) dragCurrent = getCanvasPos(e); }
+
+function endDrag() {
+    if (!isDragging) return;
+    isDragging = false;
+    const dx = dragStart.x - dragCurrent.x;
+    const dy = dragStart.y - dragCurrent.y;
+    if (dy > 12) {
+        ball.vx = dx * 0.13;
+        ball.vy = -dy * 0.16;
+        
+        // Define onde o goleiro vai tentar defender com base no chute
+        preverDefesa();
+        gameState = 'FLYING';
+    }
+}
+
+function chutarPara(targetX) {
+    const dx = targetX - ball.x;
+    const dy = goal.y - ball.y;
+    ball.vx = dx * 0.08;
+    ball.vy = dy * 0.07;
+    
+    preverDefesa();
+    gameState = 'FLYING';
+}
+
+// IA calcula para onde se atirar assim que a bola é chutada
+function preverDefesa() {
+    // Descobre o ponto X onde a bola vai cruzar a linha do gol
+    let tempoAteGol = (ball.y - goal.y) / Math.abs(ball.vy);
+    let pontoFinalX = ball.x + (ball.vx * tempoAteGol);
+
+    // O goleiro mira no ponto final, centralizando o corpo dele
+    goalkeeper.targetDefenseX = pontoFinalX - (goalkeeper.width / 2);
+    
+    // Mantém o goleiro dentro dos limites da trave
+    goalkeeper.targetDefenseX = Math.max(goal.x, Math.min(goal.x + goal.width - goalkeeper.width, goalkeeper.targetDefenseX));
+}
+
+function handleTouchStart(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    startDrag({ clientX: touch.clientX, clientY: touch.clientY });
+}
+function handleTouchMove(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    drag({ clientX: touch.clientX, clientY: touch.clientY });
+}
+function handleTouchEnd(e) {
+    e.preventDefault();
+    endDrag();
+}
+
+function resetBall() {
+    ball.x = ball.startX;
+    ball.y = ball.startY;
+    ball.vx = 0; ball.vy = 0; ball.scale = 1;
+    gameState = 'AIMING';
+}
+
+function resetGame() {
+    score = 0;
+    lives = 3;
+    goalkeeper.speed = 5.0;
+    resetBall();
+}
+
+function update() {
+    if (shakeTimer > 0) shakeTimer--;
+    if (gameState === 'MENU' || gameState === 'GAMEOVER') return;
+
+    if (gameState === 'AIMING') {
+        // Patrulha normal antes do chute
+        goalkeeper.x += goalkeeper.speed * goalkeeper.direction;
+        if (goalkeeper.x <= goal.x || goalkeeper.x + goalkeeper.width >= goal.x + goal.width) {
+            goalkeeper.direction *= -1;
+        }
+    } else if (gameState === 'FLYING') {
+        // O goleiro se atira rapidamente em direção ao ponto calculado do chute (mesmo nos cantos!)
+        let velocidadeAjustada = goalkeeper.speed + (score * 0.4);
+        if (goalkeeper.x < goalkeeper.targetDefenseX) {
+            goalkeeper.x = Math.min(goalkeeper.targetDefenseX, goalkeeper.x + velocidadeAjustada);
+        } else if (goalkeeper.x > goalkeeper.targetDefenseX) {
+            goalkeeper.x = Math.max(goalkeeper.targetDefenseX, goalkeeper.x - velocidadeAjustada);
+        }
+
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+        ball.scale = Math.max(0.6, ball.scale - 0.012);
+
+        // Colisão Goleiro (Agora defende nos cantos também!)
+        if (
+            ball.y <= goalkeeper.y + goalkeeper.height &&
+            ball.y >= goalkeeper.y - 8 &&
+            ball.x >= goalkeeper.x - 8 &&
+            ball.x <= goalkeeper.x + goalkeeper.width + 8
+        ) {
+            gameState = 'MISS';
+            lives--;
+            shakeTimer = 15;
+            setTimeout(() => { if (lives <= 0) gameState = 'GAMEOVER'; else resetBall(); }, 1000);
+        } 
+        // Gol (Só se passar longe do goleiro)
+        else if (ball.y <= goal.y + goal.height) {
+            if (ball.x >= goal.x && ball.x <= goal.x + goal.width) {
+                gameState = 'GOAL';
+                score++;
+                goalkeeper.speed += 0.4;
+                setTimeout(resetBall, 1000);
+            } else {
+                gameState = 'MISS';
+                lives--;
+                shakeTimer = 15;
+                setTimeout(() => { if (lives <= 0) gameState = 'GAMEOVER'; else resetBall(); }, 1000);
+            }
+        }
+    }
+}
+
+function draw() {
+    ctx.save();
+    if (shakeTimer > 0) {
+        let offsetX = (Math.random() - 0.5) * 8;
+        let offsetY = (Math.random() - 0.5) * 8;
+        ctx.translate(offsetX, offsetY);
+    }
+
+    // Campo
+    ctx.fillStyle = '#16a34a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#15803d';
+    for (let i = 0; i < canvas.height; i += 70) {
+        if ((i / 70) % 2 === 0) ctx.fillRect(0, i, canvas.width, 35);
+    }
+
+    // Grande Área
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(25, 45, 350, 210);
+
+    // Trave
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(goal.x, goal.y - 35, goal.width, 35);
+    ctx.strokeStyle = '#f8fafc';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(goal.x, goal.y - 35, goal.width, 35);
+
+    // Goleiro
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(goalkeeper.x + goalkeeper.width/2, goalkeeper.y + goalkeeper.height + 3, goalkeeper.width/2.2, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#eab308';
+    ctx.beginPath();
+    ctx.roundRect(goalkeeper.x, goalkeeper.y, goalkeeper.width, goalkeeper.height, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#ca8a04';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(goalkeeper.x + goalkeeper.width / 2, goalkeeper.y - 10, 11, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mira
+    if (isDragging) {
+        ctx.beginPath();
+        ctx.moveTo(ball.x, ball.y);
+        ctx.lineTo(ball.x + (dragStart.x - dragCurrent.x), ball.y + (dragStart.y - dragCurrent.y));
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 5;
+        ctx.setLineDash([8, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Bola
+    ctx.save();
+    ctx.translate(ball.x, ball.y);
+    ctx.scale(ball.scale, ball.scale);
+
+    ctx.beginPath();
+    ctx.arc(0, 15, ball.radius * 0.85, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, ball.radius / 2.3, 0, Math.PI * 2);
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+
+    ctx.restore();
+
+    // HUD Placar
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(15, 15, 370, 48, 10);
+    ctx.fill();
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = '900 16px Montserrat, sans-serif';
+    ctx.fillText(`GOLS: ${score}`, 30, 44);
+    ctx.fillText(`VIDAS: ${'❤️'.repeat(lives)}`, 245, 44);
+
+    // Botões Mobile
+    mobileButtons.forEach(btn => {
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+        ctx.beginPath();
+        ctx.roundRect(btn.x, btn.y, btn.width, btn.height, 12);
+        ctx.fill();
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 13px Montserrat, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(btn.label, btn.x + btn.width / 2, btn.y + 28);
+        ctx.textAlign = 'start';
+    });
+
+    // Estados da Tela
+    if (gameState === 'MENU') {
+        drawModal("PENALTY KICK", "Toque ou Clique para Jogar", "#22c55e");
+    } else if (gameState === 'GOAL') {
+        drawBanner("GOLASSO! ⚽", "#22c55e");
+    } else if (gameState === 'MISS') {
+        drawBanner("DEFENDEU! ❌", "#ef4444");
+    } else if (gameState === 'GAMEOVER') {
+        drawModal("FIM DE JOGO", `Total de Gols: ${score}\nToque para Reiniciar`, "#ef4444");
+    }
+
+    ctx.restore();
+    requestAnimationFrame(gameLoop);
+}
+
+function drawBanner(text, color) {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+    ctx.fillRect(0, canvas.height / 2 - 50, canvas.width, 100);
+    ctx.fillStyle = color;
+    ctx.font = '900 26px Montserrat, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 8);
+    ctx.textAlign = 'start';
+}
+
+function drawModal(title, subtitle, color) {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = color;
+    ctx.font = '900 28px Montserrat, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(title, canvas.width / 2, canvas.height / 2 - 30);
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '700 15px Montserrat, sans-serif';
+    
+    const lines = subtitle.split('\n');
+    lines.forEach((line, index) => {
+        ctx.fillText(line, canvas.width / 2, canvas.height / 2 + 10 + (index * 24));
+    });
+    ctx.textAlign = 'start';
+}
+
+function gameLoop() { update(); draw(); }
+gameLoop();
+</script>
+</body>
+</html>
